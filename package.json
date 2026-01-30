@@ -4,6 +4,11 @@
     "description": "A responsive audio jukebox block with queue, shuffle, and repeat functionality.",
     "author": "PinkCrab",
     "license": "GPL-2.0-or-later",
+    "homepage": "https://glynnquelch.co.uk/software/mp3-jukebox-block/",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/Pink-Crab/Jukebox-Blockj.git"
+    },
     "main": "build/index.js",
     "scripts": {
         "build": "wp-scripts build",

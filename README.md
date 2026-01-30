@@ -2,6 +2,8 @@
 
 A responsive WordPress audio jukebox block with queue, shuffle, and repeat functionality.
 
+**If you want to install this plugin**, DON'T DOWNLOAD THIS REPO. You can download the latest stable version from the [releases page](https://github.com/Pink-Crab/Jukebox-Blockj/releases) or visit the [plugin homepage](https://glynnquelch.co.uk/software/mp3-jukebox-block/).
+
 ## Features
 
 - **Track Management**: Add tracks with artist, title, album, cover image, and page link
@@ -16,12 +18,14 @@ A responsive WordPress audio jukebox block with queue, shuffle, and repeat funct
 
 ## Installation
 
-1. Upload the `jukebox` folder to `/wp-content/plugins/`
-2. Run `npm install` in the plugin directory (on your dev machine)
-3. Run `npm run build` to compile the assets
-4. Activate the plugin through WordPress admin
+1. Download the latest release from the [releases page](https://github.com/Pink-Crab/Jukebox-Blockj/releases)
+2. Upload the `Jukebox-Blockj` folder to `/wp-content/plugins/`
+3. Activate the plugin through the 'Plugins' menu in WordPress
+4. Add the "Jukebox" block to any post or page
 
 ## Building
+
+For developers who want to build from source:
 
 ```bash
 # Install dependencies
