@@ -23,3 +23,9 @@ npm-debug.log*
 # Backup files
 *.bak*
 
+# E2E test artifacts
+e2e/.env
+artifacts/
+test-results/
+playwright-report/
+
