@@ -1,0 +1,6 @@
+{
+	"core": null,
+	"plugins": [ "." ],
+	"port": 57881,
+	"testsPort": 57882
+}
