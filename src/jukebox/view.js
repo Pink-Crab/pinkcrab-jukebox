@@ -2,6 +2,8 @@
  * Frontend view script for Jukebox block.
  * Handles all playback, queue, shuffle, and repeat functionality.
  */
+import { __, sprintf } from '@wordpress/i18n';
+import Visualizer from './visualizer';
 
 /**
  * Jukebox Class - Manages a single jukebox instance
@@ -19,21 +21,8 @@ class Jukebox {
 		this.shuffleIndex = 0;
 		this.volume = 0.8;
 
-		// Visualizer settings
-		this.vizModes = [ 'off', 'bars', 'oscilloscope', 'mirror', 'fire' ];
-		this.vizModeNames = {
-			off: 'Off',
-			bars: 'Classic Bars',
-			oscilloscope: 'Oscilloscope',
-			mirror: 'Spectrum Mirror',
-			fire: 'Fire Bars',
-		};
-		this.vizMode = 'off';
-		this.audioContext = null;
-		this.analyser = null;
-		this.animationId = null;
-		this.vizInitialized = false;
-		this.vizCorsBlocked = false;
+		// Visualizer (initialized in init() after audio element exists)
+		this.visualizer = null;
 
 		this.init();
 	}
@@ -65,6 +54,23 @@ class Jukebox {
 
 		// Initialize audio
 		this.initAudio();
+
+		// Initialize visualizer (after audio element is guaranteed to exist)
+		this.visualizer = new Visualizer( {
+			container: this.container,
+			audio: this.audio,
+			canvasBehind: this.vizCanvasBehind,
+			canvasOverlay: this.vizCanvasOverlay,
+			toggleButton: this.vizToggle,
+			getTrackUrl: () => {
+				const track = this.tracks[ this.currentIndex ];
+				return track ? track.url : null;
+			},
+			showToast: ( message ) => this.showToast( message ),
+		} );
+
+		// Run initial CORS check (loadTrack ran before visualizer existed)
+		this.visualizer.checkAvailability();
 
 		// Mark as initialized
 		this.container.classList.add( 'jukebox--initialized' );
@@ -130,6 +136,12 @@ class Jukebox {
 		this.queueCount = this.container.querySelector( '.jukebox__queue-count' );
 		this.queueClear = this.container.querySelector( '.jukebox__queue-clear' );
 		this.queueClose = this.container.querySelector( '.jukebox__queue-close' );
+
+		// Screen reader live region
+		this.announceEl = this.container.querySelector( '.jukebox__sr-announce' );
+
+		// Shortcuts toggle button
+		this.shortcutsToggle = this.container.querySelector( '.jukebox__shortcuts-toggle' );
 	}
 
 	/**
@@ -220,6 +232,17 @@ class Jukebox {
 						this.addToQueue( index );
 					} );
 				}
+
+				// Keyboard: Enter/Space to play, Q to queue
+				item.addEventListener( 'keydown', ( e ) => {
+					if ( e.key === 'Enter' || e.key === ' ' ) {
+						e.preventDefault();
+						this.playTrack( index );
+					} else if ( e.key === 'q' || e.key === 'Q' ) {
+						e.preventDefault();
+						this.addToQueue( index );
+					}
+				} );
 			} );
 		}
 
@@ -238,17 +261,23 @@ class Jukebox {
 			this.queueClose.addEventListener( 'click', () => this.toggleQueuePanel() );
 		}
 
-		// Keyboard shortcuts
-		this.container.addEventListener( 'keydown', ( e ) => this.handleKeyboard( e ) );
+		// Keyboard shortcuts (store reference for destroy())
+		this._keydownHandler = ( e ) => this.handleKeyboard( e );
+		this.container.addEventListener( 'keydown', this._keydownHandler );
 
 		// Visualizer toggle button (cycles through modes)
 		if ( this.vizToggle ) {
-			this.vizToggle.addEventListener( 'click', () => this.cycleVisualizerMode() );
+			this.vizToggle.addEventListener( 'click', () => this.visualizer.cycleMode() );
 		}
 
 		// Artwork show/hide toggle button
 		if ( this.artworkToggle ) {
 			this.artworkToggle.addEventListener( 'click', () => this.toggleArtwork() );
+		}
+
+		// Shortcuts overlay button
+		if ( this.shortcutsToggle ) {
+			this.shortcutsToggle.addEventListener( 'click', () => this.toggleShortcutOverlay() );
 		}
 	}
 
@@ -269,6 +298,7 @@ class Jukebox {
 			this.audio.addEventListener( 'ended', () => this.handleEnded() );
 			this.audio.addEventListener( 'play', () => this.updatePlayState( true ) );
 			this.audio.addEventListener( 'pause', () => this.updatePlayState( false ) );
+			this.audio.addEventListener( 'error', ( e ) => this.handleError( e ) );
 		}
 
 		// Set initial volume
@@ -299,7 +329,9 @@ class Jukebox {
 		}
 
 		// Check if visualizer is available for this track
-		this.checkVisualizerAvailability();
+		if ( this.visualizer ) {
+			this.visualizer.checkAvailability();
+		}
 
 		// Update display
 		this.updateTrackDisplay( track );
@@ -309,6 +341,12 @@ class Jukebox {
 
 		// Update active state in tracklist
 		this.updateActiveTrack( index );
+
+		// Announce track change to screen readers
+		this.announce( track.artist
+			? sprintf( __( 'Now playing: %1$s by %2$s', 'pinkcrab-jukebox' ), track.title, track.artist )
+			: sprintf( __( 'Now playing: %s', 'pinkcrab-jukebox' ), track.title )
+		);
 
 		// Auto-play if requested
 		if ( autoplay && this.audio ) {
@@ -337,7 +375,7 @@ class Jukebox {
 
 		// Text info
 		if ( this.titleEl ) {
-			this.titleEl.textContent = track.title || 'Unknown Track';
+			this.titleEl.textContent = track.title || __( 'Unknown Track', 'pinkcrab-jukebox' );
 		}
 		if ( this.artistEl ) {
 			this.artistEl.textContent = track.artist || '';
@@ -487,6 +525,8 @@ class Jukebox {
 		if ( this.isShuffle ) {
 			this.generateShuffleOrder();
 		}
+
+		this.announce( this.isShuffle ? __( 'Shuffle on', 'pinkcrab-jukebox' ) : __( 'Shuffle off', 'pinkcrab-jukebox' ) );
 	}
 
 	/**
@@ -522,7 +562,21 @@ class Jukebox {
 		if ( this.repeatBtn ) {
 			this.repeatBtn.dataset.repeatMode = this.repeatMode;
 			this.repeatBtn.classList.toggle( 'jukebox__btn--active', this.repeatMode !== 'off' );
+
+			const repeatLabels = {
+				off: __( 'Repeat: off', 'pinkcrab-jukebox' ),
+				all: __( 'Repeat: all tracks', 'pinkcrab-jukebox' ),
+				one: __( 'Repeat: current track', 'pinkcrab-jukebox' ),
+			};
+			this.repeatBtn.setAttribute( 'aria-label', repeatLabels[ this.repeatMode ] );
 		}
+
+		const repeatAnnounce = {
+			off: __( 'Repeat: off', 'pinkcrab-jukebox' ),
+			all: __( 'Repeat: all tracks', 'pinkcrab-jukebox' ),
+			one: __( 'Repeat: current track', 'pinkcrab-jukebox' ),
+		};
+		this.announce( repeatAnnounce[ this.repeatMode ] );
 	}
 
 	/**
@@ -552,6 +606,11 @@ class Jukebox {
 		if ( this.currentTimeEl ) {
 			this.currentTimeEl.textContent = this.formatTime( this.audio.currentTime );
 		}
+		if ( this.progressInput ) {
+			this.progressInput.setAttribute( 'aria-valuetext',
+				sprintf( __( '%1$s of %2$s', 'pinkcrab-jukebox' ), this.formatTime( this.audio.currentTime ), this.formatTime( this.audio.duration ) )
+			);
+		}
 	}
 
 	/**
@@ -573,7 +632,7 @@ class Jukebox {
 
 		if ( this.playBtn ) {
 			this.playBtn.classList.toggle( 'jukebox__btn--playing', playing );
-			this.playBtn.setAttribute( 'aria-label', playing ? 'Pause' : 'Play' );
+			this.playBtn.setAttribute( 'aria-label', playing ? __( 'Pause', 'pinkcrab-jukebox' ) : __( 'Play', 'pinkcrab-jukebox' ) );
 		}
 
 		this.container.classList.toggle( 'jukebox--playing', playing );
@@ -619,6 +678,9 @@ class Jukebox {
 		if ( this.volumeBtn ) {
 			this.volumeBtn.classList.toggle( 'jukebox__btn--muted', isMuted );
 		}
+		if ( this.volumeInput ) {
+			this.volumeInput.setAttribute( 'aria-valuetext', `${ Math.round( displayVolume ) }%` );
+		}
 	}
 
 	/**
@@ -661,7 +723,9 @@ class Jukebox {
 			this.filterActiveBar.classList.add( 'is-visible' );
 		}
 		if ( this.filterActiveValue ) {
-			this.filterActiveValue.textContent = `${ type === 'artist' ? 'Artist' : 'Album' }: ${ value }`;
+			this.filterActiveValue.textContent = type === 'artist'
+				? sprintf( __( 'Artist: %s', 'pinkcrab-jukebox' ), value )
+				: sprintf( __( 'Album: %s', 'pinkcrab-jukebox' ), value );
 		}
 
 		// Filter tracks by artist or album
@@ -717,7 +781,8 @@ class Jukebox {
 	 */
 	addToQueue( index ) {
 		if ( index === this.currentIndex ) {
-			this.showToast( 'Already playing this track' );
+			this.showToast( __( 'Already playing this track', 'pinkcrab-jukebox' ) );
+			this.announce( __( 'Already playing this track', 'pinkcrab-jukebox' ) );
 			return; // Don't queue current track
 		}
 
@@ -729,7 +794,8 @@ class Jukebox {
 			this.updateQueueDisplay();
 			this.updateQueueButtonStates();
 			const track = this.tracks[ index ];
-			this.showToast( `Removed "${ track.title }" from queue` );
+			this.showToast( sprintf( __( 'Removed "%s" from queue', 'pinkcrab-jukebox' ), track.title ) );
+			this.announce( sprintf( __( 'Removed "%s" from queue', 'pinkcrab-jukebox' ), track.title ) );
 			return;
 		}
 
@@ -739,7 +805,8 @@ class Jukebox {
 
 		// Show feedback
 		const track = this.tracks[ index ];
-		this.showToast( `Added "${ track.title }" to queue` );
+		this.showToast( sprintf( __( 'Added "%s" to queue', 'pinkcrab-jukebox' ), track.title ) );
+		this.announce( sprintf( __( 'Added "%s" to queue', 'pinkcrab-jukebox' ), track.title ) );
 	}
 
 	/**
@@ -774,7 +841,7 @@ class Jukebox {
 				
 				const textEl = queueBtn.querySelector( '.jukebox__track-btn-text' );
 				if ( textEl ) {
-					textEl.textContent = isQueued ? 'Queued' : 'Queue';
+					textEl.textContent = isQueued ? __( 'Queued', 'pinkcrab-jukebox' ) : __( 'Queue', 'pinkcrab-jukebox' );
 				}
 			}
 		} );
@@ -854,37 +921,50 @@ class Jukebox {
 
 		// Update queue list
 		if ( this.queueList ) {
-			this.queueList.innerHTML = this.queue
-				.map( ( trackIndex, queueIndex ) => {
-					const track = this.tracks[ trackIndex ];
-					return `
-						<li class="jukebox__queue-item" data-queue-index="${ queueIndex }">
-							<div class="jukebox__queue-item-info">
-								<span class="jukebox__queue-item-title">${ this.escapeHtml( track.title ) }</span>
-								<span class="jukebox__queue-item-artist">${ this.escapeHtml( track.artist ) }</span>
-							</div>
-							<button 
-								type="button" 
-								class="jukebox__queue-item-remove" 
-								aria-label="Remove from queue"
-								data-queue-index="${ queueIndex }"
-							>
-								<svg viewBox="0 0 24 24" fill="currentColor">
-									<path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
-								</svg>
-							</button>
-						</li>
-					`;
-				} )
-				.join( '' );
+			this.queueList.textContent = '';
 
-			// Bind remove buttons
-			this.queueList.querySelectorAll( '.jukebox__queue-item-remove' ).forEach( ( btn ) => {
-				btn.addEventListener( 'click', ( e ) => {
+			this.queue.forEach( ( trackIndex, queueIndex ) => {
+				const track = this.tracks[ trackIndex ];
+
+				const li = document.createElement( 'li' );
+				li.className = 'jukebox__queue-item';
+				li.dataset.queueIndex = queueIndex;
+
+				const info = document.createElement( 'div' );
+				info.className = 'jukebox__queue-item-info';
+
+				const title = document.createElement( 'span' );
+				title.className = 'jukebox__queue-item-title';
+				title.textContent = track.title;
+
+				const artist = document.createElement( 'span' );
+				artist.className = 'jukebox__queue-item-artist';
+				artist.textContent = track.artist;
+
+				info.appendChild( title );
+				info.appendChild( artist );
+
+				const removeBtn = document.createElement( 'button' );
+				removeBtn.type = 'button';
+				removeBtn.className = 'jukebox__queue-item-remove';
+				removeBtn.setAttribute( 'aria-label', __( 'Remove from queue', 'pinkcrab-jukebox' ) );
+
+				const svg = document.createElementNS( 'http://www.w3.org/2000/svg', 'svg' );
+				svg.setAttribute( 'viewBox', '0 0 24 24' );
+				svg.setAttribute( 'fill', 'currentColor' );
+				const path = document.createElementNS( 'http://www.w3.org/2000/svg', 'path' );
+				path.setAttribute( 'd', 'M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z' );
+				svg.appendChild( path );
+				removeBtn.appendChild( svg );
+
+				removeBtn.addEventListener( 'click', ( e ) => {
 					e.stopPropagation();
-					const queueIndex = parseInt( btn.dataset.queueIndex, 10 );
 					this.removeFromQueue( queueIndex );
 				} );
+
+				li.appendChild( info );
+				li.appendChild( removeBtn );
+				this.queueList.appendChild( li );
 			} );
 		}
 
@@ -922,35 +1002,75 @@ class Jukebox {
 	}
 
 	/**
-	 * Handle keyboard shortcuts
+	 * Announce a message to screen readers via the live region.
+	 */
+	announce( message ) {
+		if ( this.announceEl ) {
+			this.announceEl.textContent = '';
+			requestAnimationFrame( () => {
+				this.announceEl.textContent = message;
+			} );
+		}
+	}
+
+	/**
+	 * Handle keyboard shortcuts (Winamp-style).
+	 *
+	 * Z = Previous, X = Play, C = Pause, V = Stop, B = Next
+	 * S = Shuffle, R = Repeat, M = Mute, Q = Queue panel
+	 * Arrow Left/Right = Seek ∓5 s, Arrow Up/Down = Volume ±10%
+	 * ? = Show/hide keyboard shortcut overlay
 	 */
 	handleKeyboard( e ) {
 		// Only handle shortcuts if this jukebox is focused
 		if ( ! this.container.contains( document.activeElement ) ) return;
 
+		// Ignore when typing in an input field
+		if ( e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' ) return;
+
 		switch ( e.key ) {
-			case ' ':
+			case 'z':
+			case 'Z':
 				e.preventDefault();
-				this.togglePlay();
+				this.previous();
+				break;
+			case 'x':
+			case 'X':
+				e.preventDefault();
+				if ( ! this.isPlaying ) {
+					this.togglePlay();
+				}
+				break;
+			case 'c':
+			case 'C':
+				e.preventDefault();
+				if ( this.isPlaying ) {
+					this.togglePlay();
+				}
+				break;
+			case 'v':
+			case 'V':
+				e.preventDefault();
+				if ( this.audio ) {
+					this.audio.pause();
+					this.audio.currentTime = 0;
+				}
+				break;
+			case 'b':
+			case 'B':
+				e.preventDefault();
+				this.next();
 				break;
 			case 'ArrowLeft':
-				if ( e.shiftKey ) {
-					this.previous();
-				} else {
-					// Seek back 5 seconds
-					if ( this.audio ) {
-						this.audio.currentTime = Math.max( 0, this.audio.currentTime - 5 );
-					}
+				e.preventDefault();
+				if ( this.audio ) {
+					this.audio.currentTime = Math.max( 0, this.audio.currentTime - 5 );
 				}
 				break;
 			case 'ArrowRight':
-				if ( e.shiftKey ) {
-					this.next();
-				} else {
-					// Seek forward 5 seconds
-					if ( this.audio ) {
-						this.audio.currentTime = Math.min( this.audio.duration, this.audio.currentTime + 5 );
-					}
+				e.preventDefault();
+				if ( this.audio ) {
+					this.audio.currentTime = Math.min( this.audio.duration || 0, this.audio.currentTime + 5 );
 				}
 				break;
 			case 'ArrowUp':
@@ -973,7 +1093,73 @@ class Jukebox {
 			case 'R':
 				this.toggleRepeat();
 				break;
+			case 'q':
+			case 'Q':
+				this.toggleQueuePanel();
+				break;
+			case '?':
+				e.preventDefault();
+				this.toggleShortcutOverlay();
+				break;
 		}
+	}
+
+	/**
+	 * Toggle the keyboard shortcut overlay.
+	 */
+	toggleShortcutOverlay() {
+		let overlay = this.container.querySelector( '.jukebox__shortcuts-overlay' );
+
+		if ( overlay ) {
+			overlay.remove();
+			return;
+		}
+
+		overlay = document.createElement( 'div' );
+		overlay.className = 'jukebox__shortcuts-overlay';
+
+		const shortcuts = [
+			[ 'Z', __( 'Previous track', 'pinkcrab-jukebox' ) ],
+			[ 'X', __( 'Play', 'pinkcrab-jukebox' ) ],
+			[ 'C', __( 'Pause', 'pinkcrab-jukebox' ) ],
+			[ 'V', __( 'Stop', 'pinkcrab-jukebox' ) ],
+			[ 'B', __( 'Next track', 'pinkcrab-jukebox' ) ],
+			[ 'S', __( 'Shuffle', 'pinkcrab-jukebox' ) ],
+			[ 'R', __( 'Repeat', 'pinkcrab-jukebox' ) ],
+			[ 'M', __( 'Mute', 'pinkcrab-jukebox' ) ],
+			[ 'Q', __( 'Queue', 'pinkcrab-jukebox' ) ],
+			[ '\u2190 / \u2192', __( 'Seek', 'pinkcrab-jukebox' ) ],
+			[ '\u2191 / \u2193', __( 'Volume', 'pinkcrab-jukebox' ) ],
+			[ '?', __( 'This help', 'pinkcrab-jukebox' ) ],
+		];
+
+		const title = document.createElement( 'h3' );
+		title.className = 'jukebox__shortcuts-title';
+		title.textContent = __( 'Keyboard Shortcuts', 'pinkcrab-jukebox' );
+		overlay.appendChild( title );
+
+		const list = document.createElement( 'dl' );
+		list.className = 'jukebox__shortcuts-list';
+
+		shortcuts.forEach( ( [ key, desc ] ) => {
+			const dt = document.createElement( 'dt' );
+			const kbd = document.createElement( 'kbd' );
+			kbd.textContent = key;
+			dt.appendChild( kbd );
+
+			const dd = document.createElement( 'dd' );
+			dd.textContent = desc;
+
+			list.appendChild( dt );
+			list.appendChild( dd );
+		} );
+
+		overlay.appendChild( list );
+
+		// Close on click
+		overlay.addEventListener( 'click', () => overlay.remove() );
+
+		this.container.appendChild( overlay );
 	}
 
 	/**
@@ -981,7 +1167,7 @@ class Jukebox {
 	 */
 	handleError( e ) {
 		console.error( 'Jukebox: Audio error', e );
-		this.showToast( 'Error loading audio' );
+		this.showToast( __( 'Error loading audio', 'pinkcrab-jukebox' ) );
 	}
 
 	/**
@@ -998,82 +1184,6 @@ class Jukebox {
 	}
 
 	/**
-	 * Escape HTML for safe insertion
-	 */
-	escapeHtml( str ) {
-		const div = document.createElement( 'div' );
-		div.textContent = str;
-		return div.innerHTML;
-	}
-
-	/**
-	 * Cycle through visualizer modes (for button toggle)
-	 */
-	cycleVisualizerMode() {
-		// Check if CORS blocked before trying to cycle
-		if ( this.vizCorsBlocked && this.vizMode === 'off' ) {
-			this.showToast( 'Visualizer unavailable (cross-origin audio)' );
-			return;
-		}
-
-		const currentIndex = this.vizModes.indexOf( this.vizMode );
-		const nextIndex = ( currentIndex + 1 ) % this.vizModes.length;
-		this.setVisualizerMode( this.vizModes[ nextIndex ] );
-	}
-
-	/**
-	 * Set visualizer mode directly
-	 */
-	setVisualizerMode( mode ) {
-		this.vizMode = mode;
-
-		// Update toggle button
-		if ( this.vizToggle ) {
-			this.vizToggle.dataset.vizMode = this.vizMode;
-			this.vizToggle.title = `Visualizer: ${ this.vizModeNames[ this.vizMode ] || mode }`;
-			this.vizToggle.classList.toggle( 'jukebox__sidebar-btn--active', this.vizMode !== 'off' );
-		}
-
-		// Update container class for CSS
-		this.container.dataset.vizMode = this.vizMode;
-
-		if ( this.vizMode === 'off' ) {
-			this.stopVisualizer();
-		} else {
-			this.startVisualizer();
-		}
-	}
-
-	/**
-	 * Check CORS and update visualizer button state
-	 */
-	checkVisualizerAvailability() {
-		const currentTrack = this.tracks[ this.currentIndex ];
-		const isSameOrigin = currentTrack && this.isSameOrigin( currentTrack.url );
-
-		this.vizCorsBlocked = ! isSameOrigin;
-
-		// Update button disabled state
-		if ( this.vizToggle ) {
-			this.vizToggle.classList.toggle( 'jukebox__sidebar-btn--disabled', this.vizCorsBlocked );
-			this.vizToggle.title = this.vizCorsBlocked
-				? 'Visualizer unavailable (cross-origin)'
-				: `Visualizer: ${ this.vizModeNames[ this.vizMode ] || this.vizMode }`;
-		}
-
-		// If currently running a visualizer but now blocked, turn it off
-		if ( this.vizCorsBlocked && this.vizMode !== 'off' ) {
-			this.vizMode = 'off';
-			this.stopVisualizer();
-			this.container.dataset.vizMode = 'off';
-			if ( this.vizToggle ) {
-				this.vizToggle.dataset.vizMode = 'off';
-				this.vizToggle.classList.remove( 'jukebox__sidebar-btn--active' );
-			}
-		}
-	}
-
-	/**
 	 * Toggle artwork visibility
 	 */
 	toggleArtwork() {
@@ -1086,7 +1196,7 @@ class Jukebox {
 		if ( this.artworkToggle ) {
 			this.artworkToggle.classList.toggle( 'jukebox__sidebar-btn--active', ! isNowHidden );
 			this.artworkToggle.setAttribute( 'aria-pressed', ! isNowHidden );
-			this.artworkToggle.title = isNowHidden ? 'Show Artwork' : 'Hide Artwork';
+			this.artworkToggle.title = isNowHidden ? __( 'Show Artwork', 'pinkcrab-jukebox' ) : __( 'Hide Artwork', 'pinkcrab-jukebox' );
 		}
 	}
 
@@ -1100,313 +1210,41 @@ class Jukebox {
 		if ( this.artworkToggle ) {
 			this.artworkToggle.disabled = ! hasArtwork;
 			this.artworkToggle.classList.toggle( 'jukebox__sidebar-btn--disabled', ! hasArtwork );
-			this.artworkToggle.title = hasArtwork 
-				? ( this.artwork?.classList.contains( 'jukebox__artwork--hidden' ) ? 'Show Artwork' : 'Hide Artwork' )
-				: 'No artwork available';
+			this.artworkToggle.title = hasArtwork
+				? ( this.artwork?.classList.contains( 'jukebox__artwork--hidden' ) ? __( 'Show Artwork', 'pinkcrab-jukebox' ) : __( 'Hide Artwork', 'pinkcrab-jukebox' ) )
+				: __( 'No artwork available', 'pinkcrab-jukebox' );
 		}
 	}
 
 	/**
-	 * Check if a URL is same-origin (safe for Web Audio API)
+	 * Clean up all resources: pause audio,
+	 * remove document-level listeners.
 	 */
-	isSameOrigin( url ) {
-		if ( ! url ) return false;
-		try {
-			const audioUrl = new URL( url, window.location.href );
-			return audioUrl.origin === window.location.origin;
-		} catch ( e ) {
-			return false;
-		}
-	}
-
-	/**
-	 * Initialize Web Audio API for visualizer
-	 * Returns false if CORS would cause audio to mute
-	 */
-	initAudioContext() {
-		if ( this.vizInitialized ) return true;
-
-		// Check if current track is same-origin - if not, DON'T initialize
-		// Web Audio API will silently mute cross-origin audio!
-		const currentTrack = this.tracks[ this.currentIndex ];
-		if ( currentTrack && ! this.isSameOrigin( currentTrack.url ) ) {
-			console.info( 'Jukebox: Visualizer disabled for cross-origin audio (would mute)' );
-			this.vizCorsBlocked = true;
-			return false;
+	destroy() {
+		// Destroy visualizer
+		if ( this.visualizer ) {
+			this.visualizer.destroy();
+			this.visualizer = null;
 		}
 
-		try {
-			this.audioContext = new ( window.AudioContext || window.webkitAudioContext )();
-			this.analyser = this.audioContext.createAnalyser();
-			this.analyser.fftSize = 256;
-			this.analyser.smoothingTimeConstant = 0.8;
-
-			// Connect audio element to analyser
-			const source = this.audioContext.createMediaElementSource( this.audio );
-			source.connect( this.analyser );
-			this.analyser.connect( this.audioContext.destination );
-
-			this.vizInitialized = true;
-			this.vizCorsBlocked = false;
-			return true;
-		} catch ( e ) {
-			console.warn( 'Jukebox: Could not initialize audio visualizer', e );
-			this.vizCorsBlocked = true;
-			return false;
-		}
-	}
-
-	/**
-	 * Start the visualizer
-	 */
-	startVisualizer() {
-		if ( ! this.initAudioContext() ) {
-			// CORS blocked - show message and reset to off
-			if ( this.vizCorsBlocked ) {
-				this.showToast( 'Visualizer unavailable (cross-origin audio)' );
-				this.vizMode = 'off';
-				this.container.dataset.vizMode = 'off';
-				if ( this.vizSelect ) {
-					this.vizSelect.value = 'off';
-				}
-			}
-			return;
+		// Pause and remove audio
+		if ( this.audio ) {
+			this.audio.pause();
+			this.audio.removeAttribute( 'src' );
+			this.audio.load();
 		}
 
-		// Resume audio context if suspended
-		if ( this.audioContext.state === 'suspended' ) {
-			this.audioContext.resume();
+		// Remove keyboard listener
+		if ( this._keydownHandler ) {
+			this.container.removeEventListener( 'keydown', this._keydownHandler );
 		}
 
-		// Setup canvases
-		this.setupVisualizerCanvas();
+		// Remove queue panel document listeners
+		this.removeClickOutsideListener();
 
-		// Start animation loop
-		this.animateVisualizer();
-	}
-
-	/**
-	 * Stop the visualizer
-	 */
-	stopVisualizer() {
-		if ( this.animationId ) {
-			cancelAnimationFrame( this.animationId );
-			this.animationId = null;
-		}
-
-		// Clear canvases
-		this.clearVisualizerCanvas();
-	}
-
-	/**
-	 * Setup visualizer canvas dimensions
-	 */
-	setupVisualizerCanvas() {
-		const artwork = this.container.querySelector( '.jukebox__artwork' );
-		if ( ! artwork ) return;
-
-		const rect = artwork.getBoundingClientRect();
-
-		[ this.vizCanvasBehind, this.vizCanvasOverlay ].forEach( ( canvas ) => {
-			if ( canvas ) {
-				canvas.width = rect.width * window.devicePixelRatio;
-				canvas.height = rect.height * window.devicePixelRatio;
-				canvas.style.width = rect.width + 'px';
-				canvas.style.height = rect.height + 'px';
-
-				const ctx = canvas.getContext( '2d' );
-				ctx.scale( window.devicePixelRatio, window.devicePixelRatio );
-			}
-		} );
-	}
-
-	/**
-	 * Clear visualizer canvases
-	 */
-	clearVisualizerCanvas() {
-		[ this.vizCanvasBehind, this.vizCanvasOverlay ].forEach( ( canvas ) => {
-			if ( canvas ) {
-				const ctx = canvas.getContext( '2d' );
-				ctx.clearRect( 0, 0, canvas.width, canvas.height );
-			}
-		} );
-	}
-
-	/**
-	 * Animation loop for visualizer
-	 */
-	animateVisualizer() {
-		if ( this.vizMode === 'off' ) return;
-
-		this.animationId = requestAnimationFrame( () => this.animateVisualizer() );
-
-		// Get frequency data
-		const bufferLength = this.analyser.frequencyBinCount;
-		const dataArray = new Uint8Array( bufferLength );
-
-		if ( this.vizMode === 'oscilloscope' ) {
-			this.analyser.getByteTimeDomainData( dataArray );
-		} else {
-			this.analyser.getByteFrequencyData( dataArray );
-		}
-
-		// Render to the behind canvas
-		const canvas = this.vizCanvasBehind;
-		if ( ! canvas ) return;
-
-		const ctx = canvas.getContext( '2d' );
-		const width = canvas.width / window.devicePixelRatio;
-		const height = canvas.height / window.devicePixelRatio;
-
-		// Clear
-		ctx.clearRect( 0, 0, width, height );
-
-		// Draw based on mode
-		switch ( this.vizMode ) {
-			case 'bars':
-				this.drawClassicBars( ctx, dataArray, width, height );
-				break;
-			case 'oscilloscope':
-				this.drawOscilloscope( ctx, dataArray, width, height );
-				break;
-			case 'mirror':
-				this.drawMirrorBars( ctx, dataArray, width, height );
-				break;
-			case 'fire':
-				this.drawFireBars( ctx, dataArray, width, height );
-				break;
-		}
-	}
-
-	/**
-	 * Draw classic Winamp-style bars (green → yellow → red)
-	 */
-	drawClassicBars( ctx, dataArray, width, height ) {
-		const barCount = 32;
-		const barWidth = width / barCount - 2;
-		const barSpacing = 2;
-
-		for ( let i = 0; i < barCount; i++ ) {
-			const dataIndex = Math.floor( i * dataArray.length / barCount );
-			const value = dataArray[ dataIndex ];
-			const barHeight = ( value / 255 ) * height;
-
-			const x = i * ( barWidth + barSpacing );
-			const y = height - barHeight;
-
-			// Winamp gradient: green at bottom, yellow in middle, red at top
-			const gradient = ctx.createLinearGradient( x, height, x, y );
-			gradient.addColorStop( 0, '#00ff00' );
-			gradient.addColorStop( 0.5, '#ffff00' );
-			gradient.addColorStop( 1, '#ff0000' );
-
-			ctx.fillStyle = gradient;
-			ctx.fillRect( x, y, barWidth, barHeight );
-
-			// Add glow effect
-			ctx.shadowColor = '#00ff00';
-			ctx.shadowBlur = 10;
-		}
-		ctx.shadowBlur = 0;
-	}
-
-	/**
-	 * Draw oscilloscope waveform
-	 */
-	drawOscilloscope( ctx, dataArray, width, height ) {
-		ctx.lineWidth = 2;
-		ctx.strokeStyle = '#00ff00';
-		ctx.shadowColor = '#00ff00';
-		ctx.shadowBlur = 10;
-
-		ctx.beginPath();
-
-		const sliceWidth = width / dataArray.length;
-		let x = 0;
-
-		for ( let i = 0; i < dataArray.length; i++ ) {
-			const v = dataArray[ i ] / 128.0;
-			const y = ( v * height ) / 2;
-
-			if ( i === 0 ) {
-				ctx.moveTo( x, y );
-			} else {
-				ctx.lineTo( x, y );
-			}
-
-			x += sliceWidth;
-		}
-
-		ctx.lineTo( width, height / 2 );
-		ctx.stroke();
-		ctx.shadowBlur = 0;
-	}
-
-	/**
-	 * Draw mirrored spectrum bars
-	 */
-	drawMirrorBars( ctx, dataArray, width, height ) {
-		const barCount = 32;
-		const barWidth = width / barCount - 2;
-		const barSpacing = 2;
-		const centerY = height / 2;
-
-		for ( let i = 0; i < barCount; i++ ) {
-			const dataIndex = Math.floor( i * dataArray.length / barCount );
-			const value = dataArray[ dataIndex ];
-			const barHeight = ( value / 255 ) * ( height / 2 );
-
-			const x = i * ( barWidth + barSpacing );
-
-			// Gradient for top half
-			const gradient = ctx.createLinearGradient( x, centerY, x, centerY - barHeight );
-			gradient.addColorStop( 0, '#e94560' );
-			gradient.addColorStop( 1, '#ff6b9d' );
-
-			ctx.fillStyle = gradient;
-
-			// Draw top bar
-			ctx.fillRect( x, centerY - barHeight, barWidth, barHeight );
-
-			// Draw mirrored bottom bar (slightly dimmer)
-			ctx.globalAlpha = 0.5;
-			ctx.fillRect( x, centerY, barWidth, barHeight );
-			ctx.globalAlpha = 1;
-		}
-	}
-
-	/**
-	 * Draw fire-colored bars
-	 */
-	drawFireBars( ctx, dataArray, width, height ) {
-		const barCount = 48;
-		const barWidth = width / barCount - 1;
-		const barSpacing = 1;
-
-		for ( let i = 0; i < barCount; i++ ) {
-			const dataIndex = Math.floor( i * dataArray.length / barCount );
-			const value = dataArray[ dataIndex ];
-			const barHeight = ( value / 255 ) * height;
-
-			const x = i * ( barWidth + barSpacing );
-			const y = height - barHeight;
-
-			// Fire gradient: dark red → orange → yellow → white
-			const gradient = ctx.createLinearGradient( x, height, x, y );
-			gradient.addColorStop( 0, '#330000' );
-			gradient.addColorStop( 0.3, '#ff3300' );
-			gradient.addColorStop( 0.6, '#ff9900' );
-			gradient.addColorStop( 0.85, '#ffff00' );
-			gradient.addColorStop( 1, '#ffffff' );
-
-			ctx.fillStyle = gradient;
-			ctx.fillRect( x, y, barWidth, barHeight );
-		}
-
-		// Add flickering glow
-		ctx.shadowColor = '#ff6600';
-		ctx.shadowBlur = 20 + Math.random() * 10;
-		ctx.shadowBlur = 0;
+		// Clear instance reference
+		this.container._jukeboxInstance = null;
+		this.container.classList.remove( 'jukebox--initialized' );
 	}
 }
 
@@ -1417,7 +1255,8 @@ function initJukeboxes() {
 	const jukeboxes = document.querySelectorAll( '.jukebox:not(.jukebox--initialized)' );
 
 	jukeboxes.forEach( ( container ) => {
-		new Jukebox( container );
+		const instance = new Jukebox( container );
+		container._jukeboxInstance = instance;
 	} );
 }
 
