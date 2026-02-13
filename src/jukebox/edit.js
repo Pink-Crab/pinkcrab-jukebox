@@ -15,7 +15,6 @@ import {
 	ToggleControl,
 	TextControl,
 	Placeholder,
-	__experimentalInputControl as InputControl,
 	ColorPicker,
 	Popover,
 } from '@wordpress/components';

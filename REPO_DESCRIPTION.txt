@@ -1,2 +1,0 @@
-A full-featured WordPress Gutenberg audio jukebox block with queue management, shuffle/repeat controls, track filtering, customizable colors, audio visualizer, and keyboard shortcuts. Perfect for music blogs, artist sites, and audio showcases.
-
