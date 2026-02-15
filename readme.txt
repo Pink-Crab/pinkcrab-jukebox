@@ -56,6 +56,10 @@ No. Everything runs locally in the browser.
 = Multiple players on one page? =
 Works fine. Each instance is independent.
 
+== Developer Documentation ==
+
+For developer docs and source code, see the GitHub repository: [https://github.com/Pink-Crab/pinkcrab-jukebox](https://github.com/Pink-Crab/pinkcrab-jukebox)
+
 == Changelog ==
 
 = 1.0.0 =
