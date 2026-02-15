@@ -114,18 +114,12 @@ if ( ! defined( 'ABSPATH' ) ) {
 			<button type="button" class="jukebox__artist jukebox__filter-link" data-filter-type="artist" data-filter-value="<?php echo esc_attr( $tracks[0]['artist'] ?? '' ); ?>">
 				<?php echo esc_html( $tracks[0]['artist'] ?? '' ); ?>
 			</button>
-			<?php if ( ! empty( $tracks[0]['album'] ) ) : ?>
-			<button type="button" class="jukebox__album jukebox__filter-link" data-filter-type="album" data-filter-value="<?php echo esc_attr( $tracks[0]['album'] ?? '' ); ?>">
-				<?php echo esc_html( $tracks[0]['album'] ); ?>
+			<button type="button" class="jukebox__album jukebox__filter-link" data-filter-type="album" data-filter-value="<?php echo esc_attr( $tracks[0]['album'] ?? '' ); ?>"<?php echo empty( $tracks[0]['album'] ) ? ' style="display:none"' : ''; ?>>
+				<?php echo esc_html( $tracks[0]['album'] ?? '' ); ?>
 			</button>
-			<?php else : ?>
-			<div class="jukebox__album"></div>
-			<?php endif; ?>
-			<?php if ( ! empty( $tracks[0]['pageLink'] ) ) : ?>
-				<a href="<?php echo esc_url( $tracks[0]['pageLink'] ); ?>" class="jukebox__page-link" target="_blank" rel="noopener">
-					<?php esc_html_e( 'View page', 'pinkcrab-jukebox' ); ?>
-				</a>
-			<?php endif; ?>
+			<a href="<?php echo ! empty( $tracks[0]['pageLink'] ) ? esc_url( $tracks[0]['pageLink'] ) : ''; ?>" class="jukebox__page-link" target="_blank" rel="noopener"<?php echo empty( $tracks[0]['pageLink'] ) ? ' style="display:none"' : ' style="display:inline-block"'; ?>>
+				<?php esc_html_e( 'View page', 'pinkcrab-jukebox' ); ?>
+			</a>
 		</div>
 
 		<!-- Progress Bar -->

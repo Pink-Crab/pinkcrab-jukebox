@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: PinkCrab Jukebox
- * Plugin URI: https://github.com/Pink-Crab/Jukebox-Block
+ * Plugin URI: https://github.com/Pink-Crab/pinkcrab-jukebox
  * Description: A responsive audio jukebox block with queue, shuffle, and repeat functionality.
  * Author: PinkCrab
  * Version: 1.0.0

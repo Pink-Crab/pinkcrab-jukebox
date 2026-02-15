@@ -1,5 +1,7 @@
 # PinkCrab Jukebox
 
+[![E2E Tests](https://github.com/Pink-Crab/pinkcrab-jukebox/actions/workflows/e2e-tests.yml/badge.svg)](https://github.com/Pink-Crab/pinkcrab-jukebox/actions/workflows/e2e-tests.yml)
+
 An audio jukebox block for the WordPress block editor. Requires WordPress 6.0+ and PHP 7.4+.
 
 ## Getting Started
