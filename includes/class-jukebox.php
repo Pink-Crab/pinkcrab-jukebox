@@ -11,6 +11,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+/**
+ * Main class.
+ */
 class Jukebox {
 
 	/**
@@ -52,6 +55,7 @@ class Jukebox {
 	 *
 	 * @param array  $attributes Block attributes.
 	 * @param string $content    Block content.
+	 *
 	 * @return string Rendered HTML.
 	 */
 	public static function render( $attributes, $content ) {
@@ -101,6 +105,7 @@ class Jukebox {
 	 * Sanitize a CSS color value.
 	 *
 	 * @param string $color The color value to sanitize.
+	 *
 	 * @return string Sanitized color or empty string if invalid.
 	 */
 	public static function sanitize_color( $color ) {
@@ -130,6 +135,7 @@ class Jukebox {
 	 * @param array  $attributes Block attributes.
 	 * @param string $key        Attribute key.
 	 * @param string $fallback   Default color value.
+	 *
 	 * @return string Sanitized color or the default.
 	 */
 	public static function get_color_attribute( $attributes, $key, $fallback ) {
@@ -144,6 +150,7 @@ class Jukebox {
 	 * Sanitize a single track array.
 	 *
 	 * @param array $track Track data.
+	 *
 	 * @return array Sanitized track.
 	 */
 	public static function sanitize_track( $track ) {
