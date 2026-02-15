@@ -4,9 +4,23 @@
 
 An audio jukebox block for the WordPress block editor. Requires WordPress 6.0+ and PHP 7.4+.
 
-## Getting Started
+## Installation
 
-Upload `pinkcrab-jukebox` to `/wp-content/plugins/` and activate. If installing from source, build first:
+**[Download the latest release](https://github.com/Pink-Crab/pinkcrab-jukebox/releases/latest/download/pinkcrab-jukebox.zip)**
+
+### Via WP Admin Dashboard
+
+1. Upload the archive using the WordPress plugin uploader.
+2. Activate the plugin through the 'Plugins' menu in WordPress.
+3. In the block editor, add the **Jukebox** block to any post or page.
+
+### Via FTP
+
+1. Extract the archive and upload the `pinkcrab-jukebox` folder to `/wp-content/plugins/`.
+2. Activate the plugin through the 'Plugins' menu in WordPress.
+3. In the block editor, add the **Jukebox** block to any post or page.
+
+### From Source
 
 ```bash
 npm install
@@ -15,7 +29,9 @@ npm run build
 
 Use `npm run start` for development with file watching.
 
-In the editor, add the **Jukebox** block to any post or page. Add tracks from the media library or enter URLs manually. Each track has a title, artist, album, cover image, audio file, and optional page link.
+## Usage
+
+Add tracks from the media library or enter URLs manually. Each track has a title, artist, album, cover image, audio file, and optional page link.
 
 ## Keyboard Shortcuts
 
