@@ -24,7 +24,26 @@ jobs:
         run: npm run build
 
       - name: Zip Folder
-        run: zip -r ${{ github.event.repository.name }}.zip . -x ".git/*" ".github/*" "node_modules/*" ".gitignore" ".editorconfig" "package-lock.json"
+        run: |
+          zip -r ${{ github.event.repository.name }}.zip . \
+            -x ".git/*" \
+              ".github/*" \
+              ".gitignore" \
+              ".distignore" \
+              ".editorconfig" \
+              ".claude/*" \
+              ".vscode/*" \
+              ".wp-env.json" \
+              "node_modules/*" \
+              "package.json" \
+              "package-lock.json" \
+              "src/*" \
+              "e2e/*" \
+              "artifacts/*" \
+              "test-results/*" \
+              "playwright-report/*" \
+              "*.log" \
+              "*.bak*"
 
       - name: Release
         uses: softprops/action-gh-release@v1
