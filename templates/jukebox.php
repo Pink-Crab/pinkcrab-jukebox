@@ -259,17 +259,17 @@ if ( ! defined( 'ABSPATH' ) ) {
 			<button type="button" class="jukebox__filter-clear"><?php esc_html_e( 'Clear filter', 'pinkcrab-jukebox' ); ?></button>
 		</div>
 		<ul class="jukebox__tracks" role="list">
-			<?php foreach ( $tracks as $index => $track ) : ?>
+			<?php foreach ( $tracks as $pcjukebox_index => $pcjukebox_track ) : ?>
 				<li
-					class="jukebox__track<?php echo $index === 0 ? ' jukebox__track--active' : ''; ?>"
-					data-index="<?php echo absint( $index ); ?>"
+					class="jukebox__track<?php echo 0 === $pcjukebox_index ? ' jukebox__track--active' : ''; ?>"
+					data-index="<?php echo absint( $pcjukebox_index ); ?>"
 					role="listitem"
 					tabindex="0"
 				>
 					<div class="jukebox__track-cover">
-						<?php if ( ! empty( $track['cover'] ) ) : ?>
+						<?php if ( ! empty( $pcjukebox_track['cover'] ) ) : ?>
 							<img
-								src="<?php echo esc_url( $track['cover'] ); ?>"
+								src="<?php echo esc_url( $pcjukebox_track['cover'] ); ?>"
 								alt=""
 								loading="lazy"
 							/>
@@ -282,8 +282,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 						<?php endif; ?>
 					</div>
 					<div class="jukebox__track-info">
-						<span class="jukebox__track-title"><?php echo esc_html( $track['title'] ); ?></span>
-						<span class="jukebox__track-artist"><?php echo esc_html( $track['artist'] ); ?></span>
+						<span class="jukebox__track-title"><?php echo esc_html( $pcjukebox_track['title'] ); ?></span>
+						<span class="jukebox__track-artist"><?php echo esc_html( $pcjukebox_track['artist'] ); ?></span>
 					</div>
 					<div class="jukebox__track-actions">
 						<button
